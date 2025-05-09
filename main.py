@@ -1,6 +1,6 @@
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
-
+from rapidfuzz import process
 import easyocr
 import numpy as np
 import cv2
@@ -36,14 +36,7 @@ async def ocr_car_plate(file: UploadFile = File(...)):
     }
     return JSONResponse(content=response)
 
-# ดึงข้อมูลเฉพาะออกมาอย่างง่าย
-def extract_fields(texts):
-    if isinstance(texts, list):
-        text = " ".join(texts)
-    else:
-        text = texts
-
-    text = text.lower().replace('\n', ' ').replace('|', '1').replace('ฺ', '').replace(']', 'l')
+def match_province(text):
 
     provinces = [
         "กรุงเทพมหานคร", "กระบี่", "กาญจนบุรี", "กาฬสินธุ์", "กำแพงเพชร", "ขอนแก่น",
@@ -59,13 +52,28 @@ def extract_fields(texts):
         "อุบลราชธานี"
     ]
 
-    # Regex จับหมายเลขทะเบียนแบบไทย เช่น กข 1234 หรือ 1กข 1234
-    plate_regex = r"([ก-ฮ]{1,2}\s?\d{1,4})"
-    
-    found_plate = re.search(plate_regex, text)
-    found_province = next((prov for prov in provinces if prov in text), None)
+    # คืนค่าจังหวัดที่ใกล้เคียงที่สุด และคะแนน
+    match, score, _ = process.extractOne(text, provinces, score_cutoff=80)  # 0-100
+    return match if match else None
+
+# ดึงข้อมูลเฉพาะออกมาอย่างง่าย
+def extract_fields(texts):
+    if isinstance(texts, list):
+        text = " ".join(texts)
+    else:
+        text = texts
+
+    text = text.lower().replace('\n', ' ').replace('|', '1').replace('ฺ', '').replace(']', 'l')
+
+    # ป้ายทะเบียน
+    plate_regex = r"(\d{0,3}[ก-ฮ]{1,2}\s?\d{1,4})"
+    match = re.search(plate_regex, text)
+    number_plate = match.group(1).replace(" ", "") if match else None
+
+    # หา province แบบ fuzzy
+    province = match_province(text)
 
     return {
-        "number_plate": found_plate.group(1).upper() if found_plate else None,
-        "province": found_province
+        "number_plate": number_plate,
+        "province": province
     }
